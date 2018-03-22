@@ -22,6 +22,9 @@ The hardware for this project has been modified from the original as follows:
 	- Power the target w/ 3.3V
 	- Use the voltage from the self-powered target to run the MOSI, RST, SCK lines
 
+The schematics and layout can be viewed/edited using the freeware version of DipTrace here:
+	https://diptrace.com/download/download-diptrace/
+
 ---------------------------------------------------------------------------------------------------
 Software
 ---------------------------------------------------------------------------------------------------
