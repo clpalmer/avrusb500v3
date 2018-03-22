@@ -16,13 +16,13 @@ LOWFUSE=0xe6
 #-------------------
 .PHONY: all help ld wf rf
 #-------------------
-all: main.hex
+all: avrusb500v3.hex
 #-------------------
 help: 
 	@echo "Print this help"
 	@echo "  make help"
 	@echo ""
-	@echo "Compile all and show size of main.hex"
+	@echo "Compile all and show size of avrusb500v3.hex"
 	@echo "  make all|show"
 	@echo ""
 	@echo "Load programmer software, write fuses and read fuses with external programmer"
@@ -34,27 +34,31 @@ help:
 # main
 show: main.out
 	avr-objdump -d main.out
-main.hex : main.out 
-	avr-objcopy -R .eeprom -O ihex main.out main.hex 
+avrusb500v3.hex : main.out 
+	avr-objcopy -R .eeprom -O ihex main.out avrusb500v3.hex 
 	avr-size main.out
 	@echo " "
 	@echo "Expl.: data=initialized data, bss=uninitialized data, text=code"
 	@echo " "
-main.out : main.o uart.o spi.o timeout.o
-	avr-gcc $(CFLAGS) -o main.out -Wl,-Map,main.map main.o uart.o spi.o timeout.o
-main.o : main.c command.h spi.h uart.h timeout.h
+main.out : main.o uart.o spi.o timeout.o analog.o
+	avr-gcc $(CFLAGS) -o main.out -Wl,-Map,main.map main.o uart.o spi.o timeout.o analog.o
+main.o : main.c command.h spi.h uart.h timeout.h analog.h
 	avr-gcc $(CFLAGS) -Os -c main.c
 #-------------------
 # timeout
 timeout.o : timeout.c timeout.h
 	avr-gcc $(CFLAGS) -Os -c timeout.c
 #-------------------
+# Analog
+analog.o : analog.c analog.h
+	avr-gcc $(CFLAGS) -Os -c analog.c
+#-------------------
 # SPI
 spi.o : spi.c spi.h timeout.h
 	avr-gcc $(CFLAGS) -Os -c spi.c
 #-------------------
 # UART
-uart.o : uart.c uart.h timeout.h
+uart.o : uart.c uart.h timeout.h analog.h
 	avr-gcc $(CFLAGS) -Os -c uart.c
 #-------------------
 # Load firmware with external programmer
@@ -72,5 +76,5 @@ rf:
 	$(DUDECMD) -v -q
 #-------------------
 clean:
-	rm -f *.o *.map *.out main.hex
+	rm -f *.o *.map *.out avrusb500v3.hex
 #-------------------

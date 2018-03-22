@@ -1,15 +1,33 @@
-/* vim: set sw=8 ts=8 si et: */
+/* vim: set sw=2 ts=2 si et: */
 /*********************************************
-* UART interface without interrupt
-* Author: Guido Socher, Copyright: GPL
+* UART interface without interrupts
+*
+* Modified by: Clancy Palmer
+* Original Author: Guido Socher
+* License: GPL
 * Copyright: GPL
 **********************************************/
+
 #include <avr/interrupt.h>
 #include <string.h>
 #include <avr/io.h>
 #include <avr/wdt.h>
 #include "timeout.h"
 #include "uart.h"
+#include "analog.h"
+#include "led.h"
+
+static unsigned char prg_state = 0;  // 0 = Idle, 1 = Programming
+
+unsigned char prg_state_get(void)
+{
+  return prg_state;
+}
+
+void prg_state_set(unsigned char p)
+{
+  prg_state = p;
+}
 
 void uart_init(void)
 {
@@ -52,15 +70,31 @@ void uart_sendstr_p(const char *progmem_s)
 /* get a byte from rs232. This function does a blocking read */
 unsigned char uart_getchar(unsigned char kickwd)
 {
+  unsigned char l = 1;
   while (!(UCSR0A & (1 << RXC0))) {
     // we can not aford a watchdog timeout because this is a blocking function
     if (kickwd) {
       wdt_reset();
     }
+
+    if (prg_state_get()) {
+      // Programming is ongoing
+      continue;
+    }
+
+    if (l == 0) {
+      // Once every 256th loop, l will wrap at 8 bit
+      if (vtarget_valid()) {
+        LED_ON;
+      } else {
+        LED_OFF;
+      }
+    }
+
+    l++;
   }
   return (UDR0);
 }
-
 /* read and discard any data in the receive buffer */
 void uart_flushRXbuf(void)
 {

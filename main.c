@@ -1,15 +1,16 @@
 /* vim: set sw=2 ts=2 si et: */
 /*********************************************
-* An implemenation of the STK500 specification (appl. note AVR068) for atmega8
-* * Author: Guido Socher, Copyright: GPL
-*
 * Terminal capabilities for updating SW/HW version:
 * Idea from Florin-Viorel Petrov, www.fonitzu.com/electronics, Date: 28Feb2006
 * Florin-Viorel's version was a bit more fancy than the version implemented
 * here. This implemenation is just small and simple.
 *
+* Modified by: Clancy Palmer
+* Original Author: Guido Socher
+* License: GPL
 * Copyright: GPL
 **********************************************/
+
 #include <inttypes.h>
 #include <avr/interrupt.h>
 #include <string.h>
@@ -20,13 +21,15 @@
 #include <avr/eeprom.h>
 #include "timeout.h"
 #include "uart.h"
+#include "analog.h"
+#include "led.h"
 #include "spi.h"
 #include "command.h"
 
 #define CONFIG_PARAM_BUILD_NUMBER_LOW   0
 #define CONFIG_PARAM_BUILD_NUMBER_HIGH  1
-#define CONFIG_PARAM_HW_VER             2
-#define D_CONFIG_PARAM_SW_MAJOR         2
+#define CONFIG_PARAM_HW_VER             2       // Careful changing HW versions. AVR Studio doesn't like all numbers.
+#define D_CONFIG_PARAM_SW_MAJOR         2       // Default SW version
 #define D_CONFIG_PARAM_SW_MINOR         0x0a
 #define CONFIG_PARAM_VADJUST            25
 #define CONFIG_PARAM_OSC_PSCALE         0       // Onboard oscillator off
@@ -58,6 +61,7 @@ static uint16_t saddress = 0;
 
 static unsigned char msg_buf[295];
 static unsigned char param_controller_init = 0;
+static unsigned char detected_vtg = 0; // Measured voltage from target
 
 /* transmit an answer back to the programmer software, message is
  * in msg_buf, seqnum is the seqnum of the last message from the programmer software,
@@ -103,348 +107,471 @@ void programcmd(unsigned char seqnum)
   addressing_is_word = 1; // 16 bit is default
 
   switch (msg_buf[0]) {
-  case CMD_SIGN_ON:
-    // prepare answer:
-    msg_buf[0] = CMD_SIGN_ON; // 0x01
-    msg_buf[1] = STATUS_CMD_OK; // 0x00
-    msg_buf[2] = 8; //len
-    // as of AVRStudio 6 atmel no longer supports avrisp
-    // although it is still mentioned in the protocol spec (AVR068)
-    // You get the error message
-    // "The signature of the attached tool is AVRISP_2, which is unexpected"
-    //strcpy((char *)&(msg_buf[3]),"AVRISP_2"); // note: this copies also the null termination
-    strcpy((char *) & (msg_buf[3]), "STK500_2"); // note: this copies also the null termination
-    answerlen = 11;
-    break;
-
-  case CMD_SET_PARAMETER:
-    // not implemented:
-    // PARAM_VTARGET
-    // PARAM_VADJUST
-    // PARAM_OSC_PSCALE
-    // PARAM_OSC_CMATCH
-    // PARAM_RESET_POLARITY
-    if (msg_buf[1] == PARAM_SCK_DURATION) {
-      spi_set_sck_duration(msg_buf[2]);
-    } else if (msg_buf[1] == PARAM_CONTROLLER_INIT) {
-      param_controller_init = msg_buf[2];
-    }
-    answerlen = 2;
-    //msg_buf[0] = CMD_SET_PARAMETER;
-    msg_buf[1] = STATUS_CMD_OK;
-    break;
-
-  case CMD_GET_PARAMETER:
-    tmp = 0xff;
-    tmp2 = 0; // msg understood
-    switch (msg_buf[1])
-    {
-    case PARAM_BUILD_NUMBER_LOW:
-      tmp = CONFIG_PARAM_BUILD_NUMBER_LOW;
-      break;
-    case PARAM_BUILD_NUMBER_HIGH:
-      tmp = CONFIG_PARAM_BUILD_NUMBER_HIGH;
-      break;
-    case PARAM_HW_VER:
-      tmp = CONFIG_PARAM_HW_VER;
-      break;
-    case PARAM_SW_MAJOR:
-      tmp = CONFIG_PARAM_SW_MAJOR;
-      break;
-    case PARAM_SW_MINOR:
-      tmp = CONFIG_PARAM_SW_MINOR;
-      break;
-    case PARAM_VTARGET:
-      tmp = 50; // Statically return 5V as we don't have voltage reading circuitry
-      break;
-    case PARAM_VADJUST:
-      tmp = CONFIG_PARAM_VADJUST;
-      break;
-    case PARAM_SCK_DURATION:
-      tmp = spi_get_sck_duration();
-      break;
-    case PARAM_RESET_POLARITY:   // is actually write only, list anyhow
-      // 1=avr (reset active=low), 0=at89 (not supported by avrusb500)
-      tmp = 1;
-      break;
-    case PARAM_CONTROLLER_INIT:
-      tmp = param_controller_init;
-      break;
-    case PARAM_OSC_PSCALE:
-      tmp = CONFIG_PARAM_OSC_PSCALE;
-      break;
-    case PARAM_OSC_CMATCH:
-      tmp = CONFIG_PARAM_OSC_CMATCH;
-      break;
-    case PARAM_TOPCARD_DETECT: // stk500 only
-      tmp = 0xFF; // no card
-      break;
-    case PARAM_DATA: // stk500 only
-      tmp = 0;
-      break;
-    default:
-      tmp2 = 1; // command not understood
-      break;
-    }
-    if (tmp2 == 1) {
-      // command not understood
-      answerlen = 2;
-      //msg_buf[0] = CMD_GET_PARAMETER;
-      msg_buf[1] = STATUS_CMD_UNKNOWN;
-    } else {
-      answerlen = 3;
-      //msg_buf[0] = CMD_GET_PARAMETER;
+    case CMD_SIGN_ON:
+      //msg_buf[0] = CMD_SIGN_ON;
       msg_buf[1] = STATUS_CMD_OK;
-      msg_buf[2] = tmp;
-    }
-    break;
+      msg_buf[2] = 8; // Response length
+      strcpy((char *) & (msg_buf[3]), "STK500_2"); // note: this copies also the null termination
+      answerlen = 11;
+      break;
 
-  case CMD_LOAD_ADDRESS:
-    address =  ((unsigned long)msg_buf[1]) << 24;
-    address |= ((unsigned long)msg_buf[2]) << 16;
-    address |= ((unsigned long)msg_buf[3]) << 8;
-    address |= ((unsigned long)msg_buf[4]);
-    // atmega2561/atmega2560
-    //If bit 31 is set, this indicates that the following read/write operation
-    //will be performed on a memory that is larger than 64KBytes. This is an
-    //indication to STK500 that a load extended address must be executed. See
-    //datasheet for devices with memories larger than 64KBytes.
-    //
-    if (msg_buf[1] >= 0x80) {
-      larger_than_64k = 1;
-    } else {
-      larger_than_64k = 0;
-    }
-    extended_address = msg_buf[2];
-    new_address = 1;
-    answerlen = 2;
-    //msg_buf[0] = CMD_LOAD_ADDRESS;
-    msg_buf[1] = STATUS_CMD_OK;
-    break;
-
-  case CMD_FIRMWARE_UPGRADE:
-    // firmare upgrade is not supported this way
-    answerlen = 2;
-    //msg_buf[0] = CMD_FIRMWARE_UPGRADE;
-    msg_buf[1] = STATUS_CMD_FAILED;
-    break;
-
-  case CMD_ENTER_PROGMODE_ISP: // 0x10
-    // The syntax of this command is as follows:
-    // 0: Command ID 1 byte, CMD_ENTER_ PROGMODE_ISP
-    // 1: timeout 1 byte, Command time-out (in ms)
-    // 2: stabDelay 1 byte, Delay (in ms) used for pin stabilization
-    // 3: cmdexeDelay 1 byte, Delay (in ms) in connection with the EnterProgMode command execution
-    // 4: synchLoops 1 byte, Number of synchronization loops
-    // 5: byteDelay 1 byte, Delay (in ms) between each byte in the EnterProgMode command.
-    // 6: pollValue 1 byte, Poll value: 0x53 for AVR, 0x69 for AT89xx
-    // 7: pollIndex 1 byte, Start address, received byte: 0 = no polling, 3 = AVR, 4 = AT89xx
-    // cmd1 1 byte
-    // cmd2 1 byte
-    // cmd3 1 byte
-    // cmd4 1 byte
-    spi_disable();
-    delay_ms(15);
-    spi_init();
-    delay_ms(msg_buf[2]); // stabDelay
-
-    answerlen = 2;
-    //msg_buf[0] = CMD_ENTER_PROGMODE_ISP;
-    // set default to failed:
-    msg_buf[1] = STATUS_CMD_FAILED;
-    //connect to the target
-    i = 0;
-    // limit the loops:
-    if (msg_buf[4] > 48) {
-      msg_buf[4] = 48;
-    }
-    if (msg_buf[5] < 1) {
-      // minimum byteDelay
-      msg_buf[5] = 1;
-    }
-    while (i < msg_buf[4]) { //synchLoops
-      wdt_reset();
-      delay_ms(msg_buf[3]); //cmdexeDelay
-      i++;
-      spi_mastertransmit_nr(msg_buf[8]);//cmd1
-      delay_ms(msg_buf[5]); //byteDelay
-      spi_mastertransmit_nr(msg_buf[9]); //cmd2
-      delay_ms(msg_buf[5]); //byteDelay
-      tmp = spi_mastertransmit(msg_buf[10]); //cmd3
-      delay_ms(msg_buf[5]); //byteDelay
-      tmp2 = spi_mastertransmit(msg_buf[11]); //cmd4
-      //
-      //7=pollIndex, 6=pollValue
-      if (msg_buf[7] == 3 && tmp == msg_buf[6]) {
-        msg_buf[1] = STATUS_CMD_OK;
+    case CMD_SET_PARAMETER:
+      // not implemented:
+      // PARAM_VTARGET
+      // PARAM_VADJUST
+      // PARAM_OSC_PSCALE
+      // PARAM_OSC_CMATCH
+      // PARAM_RESET_POLARITY
+      if (msg_buf[1] == PARAM_SCK_DURATION) {
+        spi_set_sck_duration(msg_buf[2]);
+      } else if (msg_buf[1] == PARAM_CONTROLLER_INIT) {
+        param_controller_init = msg_buf[2];
       }
-      //7=pollIndex, 6=pollValue
-      if (msg_buf[7] != 3 && tmp2 == msg_buf[6]) {
-        msg_buf[1] = STATUS_CMD_OK;
-      }
-      if (msg_buf[7] == 0) { //pollIndex
-        msg_buf[1] = STATUS_CMD_OK;
-      }
-      if (msg_buf[1] == STATUS_CMD_OK ) {
-        i = msg_buf[4]; // end loop
-      } else {
-        // new try, see e.g chapeter "Serial download" in
-        // data sheet.
-        // in atmega8 it says: give positive reset pulse
-        //                     and try again
-        // in at90s2313 it says: give positive sck pulse
-        //                     and try again
-        // One of those datasheets must be wrong!?
-        // Guido thinks that spi_sck_pulse is correct
-        // and will also work for atmega8 given that
-        // the number of synchLoops is at least 32.
-        //spi_reset_pulse();
-        spi_sck_pulse();
-        delay_ms(20);
-      }
-    }
-    break;
-
-  case CMD_LEAVE_PROGMODE_ISP:
-    spi_disable();
-    answerlen = 2;
-    //msg_buf[0] = CMD_LEAVE_PROGMODE_ISP;
-    msg_buf[1] = STATUS_CMD_OK;
-    break;
-
-  case CMD_CHIP_ERASE_ISP:
-    spi_scklow();
-    spi_mastertransmit_nr(msg_buf[3]);
-    spi_mastertransmit_nr(msg_buf[4]);
-    spi_mastertransmit_nr(msg_buf[5]);
-    spi_mastertransmit_nr(msg_buf[6]);
-    if (msg_buf[2] == 0) {
-      // pollMethod use delay
-      delay_ms(msg_buf[1]); // eraseDelay
-    } else {
-      // pollMethod RDY/BSY cmd
-      ci = 150; // timeout
-      while ((spi_mastertransmit_32(0xF0000000) & 1) && ci) {
-        ci--;
-      }
-    }
-    answerlen = 2;
-    //msg_buf[0] = CMD_CHIP_ERASE_ISP;
-    msg_buf[1] = STATUS_CMD_OK;
-    break;
-
-  case CMD_PROGRAM_EEPROM_ISP:
-    addressing_is_word = 0; // address each byte
-  case CMD_PROGRAM_FLASH_ISP:
-    // msg_buf[0] CMD_PROGRAM_FLASH_ISP = 0x13
-    // msg_buf[1] NumBytes H
-    // msg_buf[2] NumBytes L
-    // msg_buf[3] mode
-    // msg_buf[4] delay
-    // msg_buf[5] cmd1 (Load Page, Write Program Memory)
-    // msg_buf[6] cmd2 (Write Program Memory Page)
-    // msg_buf[7] cmd3 (Read Program Memory)
-    // msg_buf[8] poll1 (value to poll)
-    // msg_buf[9] poll2
-    // msg_buf[n+10] Data
-    poll_address = 0;
-    ci = 150;
-    // set a minimum timed delay
-    if (msg_buf[4] < 4) {
-      msg_buf[4] = 4;
-    }
-    // set a max delay
-    if (msg_buf[4] > 32) {
-      msg_buf[4] = 32;
-    }
-    saddress = (address & 0xffff); // previous address, start address
-    nbytes = (unsigned int)( (msg_buf[1] << 8) | msg_buf[2]);
-    if (nbytes > 280) {
-      // corrupted message
       answerlen = 2;
+      //msg_buf[0] = CMD_SET_PARAMETER;
+      msg_buf[1] = STATUS_CMD_OK;
+      break;
+
+    case CMD_GET_PARAMETER:
+      tmp = 0xff;
+      tmp2 = 0; // msg understood
+      switch (msg_buf[1]) {
+        case PARAM_BUILD_NUMBER_LOW:
+          tmp = CONFIG_PARAM_BUILD_NUMBER_LOW;
+          break;
+        case PARAM_BUILD_NUMBER_HIGH:
+          tmp = CONFIG_PARAM_BUILD_NUMBER_HIGH;
+          break;
+        case PARAM_HW_VER:
+          tmp = CONFIG_PARAM_HW_VER;
+          break;
+        case PARAM_SW_MAJOR:
+          tmp = CONFIG_PARAM_SW_MAJOR;
+          break;
+        case PARAM_SW_MINOR:
+          tmp = CONFIG_PARAM_SW_MINOR;
+          break;
+        case PARAM_VTARGET:
+          // Units: Voltage * 10 (ie. 50 means 5.0V)
+          if (detected_vtg) {
+            tmp = detected_vtg;
+          } else {
+            tmp = vtarget_voltage();
+          }
+          break;
+        case PARAM_VADJUST:
+          tmp = CONFIG_PARAM_VADJUST;
+          break;
+        case PARAM_SCK_DURATION:
+          tmp = spi_get_sck_duration();
+          break;
+        case PARAM_RESET_POLARITY:
+          // is actually write only, list anyhow
+          // 1=avr (reset active=low), 0=at89 (not supported by avrusb500)
+          tmp = 1;
+          break;
+        case PARAM_CONTROLLER_INIT:
+          tmp = param_controller_init;
+          break;
+        case PARAM_OSC_PSCALE:
+          tmp = CONFIG_PARAM_OSC_PSCALE;
+          break;
+        case PARAM_OSC_CMATCH:
+          tmp = CONFIG_PARAM_OSC_CMATCH;
+          break;
+        case PARAM_TOPCARD_DETECT: // stk500 only
+          tmp = 0xFF; // no card
+          break;
+        case PARAM_DATA: // stk500 only
+          tmp = 0;
+          break;
+        default:
+          tmp2 = 1; // command not understood
+          break;
+      }
+      if (tmp2 == 1) {
+        // command not understood
+        answerlen = 2;
+        //msg_buf[0] = CMD_GET_PARAMETER;
+        msg_buf[1] = STATUS_CMD_UNKNOWN;
+      } else {
+        answerlen = 3;
+        //msg_buf[0] = CMD_GET_PARAMETER;
+        msg_buf[1] = STATUS_CMD_OK;
+        msg_buf[2] = tmp;
+      }
+      break;
+
+    case CMD_LOAD_ADDRESS:
+      address =  ((unsigned long)msg_buf[1]) << 24;
+      address |= ((unsigned long)msg_buf[2]) << 16;
+      address |= ((unsigned long)msg_buf[3]) << 8;
+      address |= ((unsigned long)msg_buf[4]);
+      // atmega2561/atmega2560
+      //If bit 31 is set, this indicates that the following read/write operation
+      //will be performed on a memory that is larger than 64KBytes. This is an
+      //indication to STK500 that a load extended address must be executed. See
+      //datasheet for devices with memories larger than 64KBytes.
+      //
+      if (msg_buf[1] >= 0x80) {
+        larger_than_64k = 1;
+      } else {
+        larger_than_64k = 0;
+      }
+      extended_address = msg_buf[2];
+      new_address = 1;
+      answerlen = 2;
+      //msg_buf[0] = CMD_LOAD_ADDRESS;
+      msg_buf[1] = STATUS_CMD_OK;
+      break;
+
+    case CMD_FIRMWARE_UPGRADE:
+      // firmare upgrade is not supported this way
+      answerlen = 2;
+      //msg_buf[0] = CMD_FIRMWARE_UPGRADE;
       msg_buf[1] = STATUS_CMD_FAILED;
       break;
-    }
-    // store the original mode:
-    tmp2 = msg_buf[3];
-    // result code
-    cstatus = STATUS_CMD_OK;
-    // msg_buf[3] test Word/Page Mode bit:
-    spi_scklow();
-    if ((msg_buf[3] & 1) == 0) {
-      // word mode
-      for (i = 0; i < nbytes; i++)
-      {
-        // The Low/High byte selection bit is
-        // bit number 3. Set high byte for uneven bytes
-        if (addressing_is_word && i & 1) {
-          // high byte
-          spi_mastertransmit_nr(msg_buf[5] | (1 << 3));
-        } else {
-          // low byte
-          spi_mastertransmit_nr(msg_buf[5]);
-        }
-        spi_mastertransmit_16_nr(address & 0xffff);
-        spi_mastertransmit_nr(msg_buf[i + 10]);
-        // if the data byte is not same as poll value
-        // in that case we can do polling:
-        if (msg_buf[8] != msg_buf[i + 10]) {
-          poll_address = address & 0xFFFF;
-          // restore the possibly modifed mode:
-          msg_buf[3] = tmp2;
-        } else {
-          //switch the mode to timed delay (waiting), for this word
-          msg_buf[3] = 0x02;
-        }
-        //
+
+    case CMD_ENTER_PROGMODE_ISP: // 0x10
+      // The syntax of this command is as follows:
+      // 0: Command ID 1 byte, CMD_ENTER_ PROGMODE_ISP
+      // 1: timeout 1 byte, Command time-out (in ms)
+      // 2: stabDelay 1 byte, Delay (in ms) used for pin stabilization
+      // 3: cmdexeDelay 1 byte, Delay (in ms) in connection with the EnterProgMode command execution
+      // 4: synchLoops 1 byte, Number of synchronization loops
+      // 5: byteDelay 1 byte, Delay (in ms) between each byte in the EnterProgMode command.
+      // 6: pollValue 1 byte, Poll value: 0x53 for AVR, 0x69 for AT89xx
+      // 7: pollIndex 1 byte, Start address, received byte: 0 = no polling, 3 = AVR, 4 = AT89xx
+      // cmd1 1 byte
+      // cmd2 1 byte
+      // cmd3 1 byte
+      // cmd4 1 byte
+      prg_state_set(1);
+      spi_disable();
+      delay_ms(15);
+      detected_vtg = vtarget_voltage();
+      spi_init();
+      delay_ms(msg_buf[2]); // stabDelay
+
+      answerlen = 2;
+      //msg_buf[0] = CMD_ENTER_PROGMODE_ISP;
+      // set default to failed:
+      msg_buf[1] = STATUS_CMD_FAILED;
+      //connect to the target
+      i = 0;
+      // limit the loops:
+      if (msg_buf[4] > 48) {
+        msg_buf[4] = 48;
+      }
+      if (msg_buf[5] < 1) {
+        // minimum byteDelay
+        msg_buf[5] = 1;
+      }
+      while (i < msg_buf[4]) { //synchLoops
         wdt_reset();
-        if (!addressing_is_word) {
-          // eeprom writing, eeprom needs more time
-          delay_ms(2);
+        delay_ms(msg_buf[3]); //cmdexeDelay
+        i++;
+        spi_mastertransmit_nr(msg_buf[8]);//cmd1
+        delay_ms(msg_buf[5]); //byteDelay
+        spi_mastertransmit_nr(msg_buf[9]); //cmd2
+        delay_ms(msg_buf[5]); //byteDelay
+        tmp = spi_mastertransmit(msg_buf[10]); //cmd3
+        delay_ms(msg_buf[5]); //byteDelay
+        tmp2 = spi_mastertransmit(msg_buf[11]); //cmd4
+        //
+        //7=pollIndex, 6=pollValue
+        if (msg_buf[7] == 3 && tmp == msg_buf[6]) {
+          msg_buf[1] = STATUS_CMD_OK;
         }
-        //check the different polling mode methods
-        if (msg_buf[3] & 0x04) {
-          //data value polling
-          tmp = msg_buf[8];
-          ci = 150; // timeout
-          while (tmp == msg_buf[8] && ci ) {
-            // The Low/High byte selection bit is
-            // bit number 3. Set high byte for uneven bytes
-            // Read data:
-            if (addressing_is_word && i & 1) {
-              spi_mastertransmit_nr(msg_buf[7] | (1 << 3));
-            } else {
-              spi_mastertransmit_nr(msg_buf[7]);
-            }
-            spi_mastertransmit_16_nr(poll_address);
-            tmp = spi_mastertransmit(0x00);
-            ci--;
-          }
-        } else if (msg_buf[3] & 0x08) {
-          //RDY/BSY polling
-          ci = 150; // timeout
-          while ((spi_mastertransmit_32(0xF0000000) & 1) && ci) {
-            ci--;
-          }
+        //7=pollIndex, 6=pollValue
+        if (msg_buf[7] != 3 && tmp2 == msg_buf[6]) {
+          msg_buf[1] = STATUS_CMD_OK;
+        }
+        if (msg_buf[7] == 0) { //pollIndex
+          msg_buf[1] = STATUS_CMD_OK;
+        }
+        if (msg_buf[1] == STATUS_CMD_OK ) {
+          i = msg_buf[4]; // end loop
         } else {
-          //timed delay (waiting)
-          delay_ms(msg_buf[4]);
+          // new try, see e.g chapeter "Serial download" in
+          // data sheet.
+          // in atmega8 it says: give positive reset pulse
+          //                     and try again
+          // in at90s2313 it says: give positive sck pulse
+          //                     and try again
+          // One of those datasheets must be wrong!?
+          // Guido thinks that spi_sck_pulse is correct
+          // and will also work for atmega8 given that
+          // the number of synchLoops is at least 32.
+          //spi_reset_pulse();
+          spi_sck_pulse();
+          delay_ms(20);
         }
-        if (addressing_is_word) {
-          //increment word address only when we have an uneven byte
-          if (i & 1) address++;
-        } else {
-          //increment address
-          address++;
-        }
-        if (ci == 0) {
-          cstatus = STATUS_CMD_TOUT;
+        if(msg_buf[1] == STATUS_CMD_FAILED ) {
+          prg_state_set(0);
+          spi_disable();
         }
       }
-    } else {
-      //page mode, all modern chips, atmega etc...
+      break;
+
+    case CMD_LEAVE_PROGMODE_ISP:
+      prg_state_set(0);
+      spi_disable();
+      detected_vtg = 0;
+      answerlen = 2;
+      //msg_buf[0] = CMD_LEAVE_PROGMODE_ISP;
+      msg_buf[1] = STATUS_CMD_OK;
+      break;
+
+    case CMD_CHIP_ERASE_ISP:
+      SCK_LOW;
+      spi_mastertransmit_nr(msg_buf[3]);
+      spi_mastertransmit_nr(msg_buf[4]);
+      spi_mastertransmit_nr(msg_buf[5]);
+      spi_mastertransmit_nr(msg_buf[6]);
+      if (msg_buf[2] == 0) {
+        // pollMethod use delay
+        delay_ms(msg_buf[1]); // eraseDelay
+      } else {
+        // pollMethod RDY/BSY cmd
+        ci = 150; // timeout
+        while ((spi_mastertransmit_32(0xF0000000) & 1) && ci) {
+          ci--;
+        }
+      }
+      answerlen = 2;
+      //msg_buf[0] = CMD_CHIP_ERASE_ISP;
+      msg_buf[1] = STATUS_CMD_OK;
+      break;
+
+    case CMD_PROGRAM_EEPROM_ISP:
+      addressing_is_word = 0; // address each byte
+    case CMD_PROGRAM_FLASH_ISP:
+      // msg_buf[0] CMD_PROGRAM_FLASH_ISP = 0x13
+      // msg_buf[1] NumBytes H
+      // msg_buf[2] NumBytes L
+      // msg_buf[3] mode
+      // msg_buf[4] delay
+      // msg_buf[5] cmd1 (Load Page, Write Program Memory)
+      // msg_buf[6] cmd2 (Write Program Memory Page)
+      // msg_buf[7] cmd3 (Read Program Memory)
+      // msg_buf[8] poll1 (value to poll)
+      // msg_buf[9] poll2
+      // msg_buf[n+10] Data
+      poll_address = 0;
+      ci = 150;
+      // set a minimum timed delay
+      if (msg_buf[4] < 4) {
+        msg_buf[4] = 4;
+      }
+      // set a max delay
+      if (msg_buf[4] > 32) {
+        msg_buf[4] = 32;
+      }
+      saddress = (address & 0xffff); // previous address, start address
+      nbytes = (unsigned int)( (msg_buf[1] << 8) | msg_buf[2]);
+      if (nbytes > 280) {
+        // corrupted message
+        answerlen = 2;
+        msg_buf[1] = STATUS_CMD_FAILED;
+        break;
+      }
+      // store the original mode:
+      tmp2 = msg_buf[3];
+      // result code
+      cstatus = STATUS_CMD_OK;
+      // msg_buf[3] test Word/Page Mode bit:
+      SCK_LOW;
+      if ((msg_buf[3] & 1) == 0) {
+        // word mode
+        for (i = 0; i < nbytes; i++)
+        {
+          // The Low/High byte selection bit is
+          // bit number 3. Set high byte for uneven bytes
+          if (addressing_is_word && i & 1) {
+            // high byte
+            spi_mastertransmit_nr(msg_buf[5] | (1 << 3));
+          } else {
+            // low byte
+            spi_mastertransmit_nr(msg_buf[5]);
+          }
+          spi_mastertransmit_16_nr(address & 0xffff);
+          spi_mastertransmit_nr(msg_buf[i + 10]);
+          // if the data byte is not same as poll value
+          // in that case we can do polling:
+          if (msg_buf[8] != msg_buf[i + 10]) {
+            poll_address = address & 0xFFFF;
+            // restore the possibly modifed mode:
+            msg_buf[3] = tmp2;
+          } else {
+            //switch the mode to timed delay (waiting), for this word
+            msg_buf[3] = 0x02;
+          }
+          //
+          wdt_reset();
+          if (!addressing_is_word) {
+            // eeprom writing, eeprom needs more time
+            delay_ms(2);
+          }
+          //check the different polling mode methods
+          if (msg_buf[3] & 0x04) {
+            //data value polling
+            tmp = msg_buf[8];
+            ci = 150; // timeout
+            while (tmp == msg_buf[8] && ci ) {
+              // The Low/High byte selection bit is
+              // bit number 3. Set high byte for uneven bytes
+              // Read data:
+              if (addressing_is_word && i & 1) {
+                spi_mastertransmit_nr(msg_buf[7] | (1 << 3));
+              } else {
+                spi_mastertransmit_nr(msg_buf[7]);
+              }
+              spi_mastertransmit_16_nr(poll_address);
+              tmp = spi_mastertransmit(0x00);
+              ci--;
+            }
+          } else if (msg_buf[3] & 0x08) {
+            //RDY/BSY polling
+            ci = 150; // timeout
+            while ((spi_mastertransmit_32(0xF0000000) & 1) && ci) {
+              ci--;
+            }
+          } else {
+            //timed delay (waiting)
+            delay_ms(msg_buf[4]);
+          }
+          if (addressing_is_word) {
+            //increment word address only when we have an uneven byte
+            if (i & 1) address++;
+          } else {
+            //increment address
+            address++;
+          }
+          if (ci == 0) {
+            cstatus = STATUS_CMD_TOUT;
+          }
+        }
+      } else {
+        //page mode, all modern chips, atmega etc...
+        i = 0;
+        while (i < nbytes) {
+          wdt_reset();
+          // In commands PROGRAM_FLASH and READ_FLASH "Load Extended Address"
+          // command is executed before every operation if we are programming
+          // processor with Flash memory bigger than 64k words and 64k words boundary
+          // is just crossed or new address was just loaded.
+          if (larger_than_64k && ((address & 0xFFFF) == 0 || new_address)) {
+            // load extended addr byte 0x4d
+            spi_mastertransmit(0x4d);
+            spi_mastertransmit(0x00);
+            spi_mastertransmit(extended_address);
+            spi_mastertransmit(0x00);
+            new_address = 0;
+          }
+          // The Low/High byte selection bit is
+          // bit number 3. Set high byte for uneven bytes
+          if (addressing_is_word && i & 1) {
+            spi_mastertransmit_nr(msg_buf[5] | (1 << 3));
+          } else {
+            spi_mastertransmit_nr(msg_buf[5]);
+          }
+          spi_mastertransmit_16_nr(address & 0xffff);
+          spi_mastertransmit_nr(msg_buf[i + 10]);
+
+          // the data byte is not same as poll value
+          // in that case we can do polling:
+          if (msg_buf[8] != msg_buf[i + 10]) {
+            poll_address = address & 0xFFFF;
+          } else {
+            //switch the mode to timed delay (waiting)
+            //we must preserve bit 0x80
+            msg_buf[3] = (msg_buf[3] & 0x80) | 0x10;
+
+          }
+          if (addressing_is_word) {
+            //increment word address only when we have an uneven byte
+            if (i & 1) {
+              address++;
+              if ((address & 0xFFFF) == 0xFFFF) {
+                extended_address++;
+              }
+            }
+          } else {
+            address++;
+          }
+          i++;
+        }
+        //page mode check result:
+        //
+        // stk sets the Write page bit (7) if the page is complete
+        // and we should write it.
+        if (msg_buf[3] & 0x80) {
+          spi_mastertransmit_nr(msg_buf[6]);
+          spi_mastertransmit_16_nr(saddress);
+          spi_mastertransmit_nr(0);
+          //
+          if (!addressing_is_word) {
+            // eeprom writing, eeprom needs more time
+            delay_ms(1);
+          }
+          //check the different polling mode methods
+          ci = 150; // timeout
+          if (msg_buf[3] & 0x20 && poll_address) {
+            //Data value polling
+            tmp = msg_buf[8];
+            while (tmp == msg_buf[8] && ci) {
+              // The Low/High byte selection bit is
+              // bit number 3. Set high byte for uneven bytes
+              // Read data:
+              if (poll_address & 1) {
+                spi_mastertransmit_nr(msg_buf[7] | (1 << 3));
+              } else {
+                spi_mastertransmit_nr(msg_buf[7]);
+              }
+              spi_mastertransmit_16_nr(poll_address);
+              tmp = spi_mastertransmit(0x00);
+              ci--;
+            }
+            if (ci == 0) {
+              cstatus = STATUS_CMD_TOUT;
+            }
+          } else if (msg_buf[3] & 0x40) {
+            //RDY/BSY polling
+            while ((spi_mastertransmit_32(0xF0000000) & 1) && ci) {
+              ci--;
+            }
+            if (ci == 0) {
+              cstatus = STATUS_RDY_BSY_TOUT;
+            }
+          } else {
+            // simple waiting
+            delay_ms(msg_buf[4]);
+          }
+        }
+      }
+      answerlen = 2;
+      //msg_buf[0] = CMD_PROGRAM_FLASH_ISP; or CMD_PROGRAM_EEPROM_ISP
+      msg_buf[1] = cstatus;
+      break;
+
+    case CMD_READ_EEPROM_ISP:
+      addressing_is_word = 0; // address each byte
+    case CMD_READ_FLASH_ISP:
+      // msg_buf[1] and msg_buf[2] NumBytes
+      // msg_buf[3] cmd
+      nbytes = ((unsigned int)msg_buf[1]) << 8;
+      nbytes |= msg_buf[2];
+      tmp = msg_buf[3];
+      // limit answer len, prevent overflow:
+      if (nbytes > 280) {
+        nbytes = 280;
+      }
+      //
       i = 0;
-      while (i < nbytes) {
+      SCK_LOW;
+      while (i < nbytes)
+      {
         wdt_reset();
         // In commands PROGRAM_FLASH and READ_FLASH "Load Extended Address"
         // command is executed before every operation if we are programming
@@ -458,26 +585,16 @@ void programcmd(unsigned char seqnum)
           spi_mastertransmit(0x00);
           new_address = 0;
         }
-        // The Low/High byte selection bit is
-        // bit number 3. Set high byte for uneven bytes
+        //Select Low or High-Byte
         if (addressing_is_word && i & 1) {
-          spi_mastertransmit_nr(msg_buf[5] | (1 << 3));
+          spi_mastertransmit_nr(tmp | (1 << 3));
         } else {
-          spi_mastertransmit_nr(msg_buf[5]);
+          spi_mastertransmit_nr(tmp);
         }
+
         spi_mastertransmit_16_nr(address & 0xffff);
-        spi_mastertransmit_nr(msg_buf[i + 10]);
+        msg_buf[i + 2] = spi_mastertransmit(0);
 
-        // the data byte is not same as poll value
-        // in that case we can do polling:
-        if (msg_buf[8] != msg_buf[i + 10]) {
-          poll_address = address & 0xFFFF;
-        } else {
-          //switch the mode to timed delay (waiting)
-          //we must preserve bit 0x80
-          msg_buf[3] = (msg_buf[3] & 0x80) | 0x10;
-
-        }
         if (addressing_is_word) {
           //increment word address only when we have an uneven byte
           if (i & 1) {
@@ -491,189 +608,83 @@ void programcmd(unsigned char seqnum)
         }
         i++;
       }
-      //page mode check result:
-      //
-      // stk sets the Write page bit (7) if the page is complete
-      // and we should write it.
-      if (msg_buf[3] & 0x80) {
-        spi_mastertransmit_nr(msg_buf[6]);
-        spi_mastertransmit_16_nr(saddress);
-        spi_mastertransmit_nr(0);
-        //
-        if (!addressing_is_word) {
-          // eeprom writing, eeprom needs more time
-          delay_ms(1);
+      answerlen = nbytes + 3;
+      //msg_buf[0] = CMD_READ_FLASH_ISP; or CMD_READ_EEPROM_ISP
+      msg_buf[1] = STATUS_CMD_OK;
+      msg_buf[nbytes + 2] = STATUS_CMD_OK;
+      break;
+
+    case CMD_PROGRAM_LOCK_ISP:
+    case CMD_PROGRAM_FUSE_ISP:
+      SCK_LOW;
+      spi_mastertransmit_nr(msg_buf[1]);
+      spi_mastertransmit_nr(msg_buf[2]);
+      spi_mastertransmit_nr(msg_buf[3]);
+      spi_mastertransmit_nr(msg_buf[4]);
+      answerlen = 3;
+      // msg_buf[0] = CMD_PROGRAM_FUSE_ISP; or CMD_PROGRAM_LOCK_ISP
+      msg_buf[1] = STATUS_CMD_OK;
+      msg_buf[2] = STATUS_CMD_OK;
+      break;
+
+    case CMD_READ_OSCCAL_ISP:
+    case CMD_READ_SIGNATURE_ISP:
+    case CMD_READ_LOCK_ISP:
+    case CMD_READ_FUSE_ISP:
+      SCK_LOW;
+      for (ci = 0; ci < 4; ci++) {
+        tmp = spi_mastertransmit(msg_buf[ci + 2]);
+        if (msg_buf[1] == (ci + 1)) {
+          msg_buf[2] = tmp;
         }
-        //check the different polling mode methods
-        ci = 150; // timeout
-        if (msg_buf[3] & 0x20 && poll_address) {
-          //Data value polling
-          tmp = msg_buf[8];
-          while (tmp == msg_buf[8] && ci) {
-            // The Low/High byte selection bit is
-            // bit number 3. Set high byte for uneven bytes
-            // Read data:
-            if (poll_address & 1) {
-              spi_mastertransmit_nr(msg_buf[7] | (1 << 3));
-            } else {
-              spi_mastertransmit_nr(msg_buf[7]);
-            }
-            spi_mastertransmit_16_nr(poll_address);
-            tmp = spi_mastertransmit(0x00);
-            ci--;
-          }
-          if (ci == 0) {
-            cstatus = STATUS_CMD_TOUT;
-          }
-        } else if (msg_buf[3] & 0x40) {
-          //RDY/BSY polling
-          while ((spi_mastertransmit_32(0xF0000000) & 1) && ci) {
-            ci--;
-          }
-          if (ci == 0) {
-            cstatus = STATUS_RDY_BSY_TOUT;
-          }
+        delay_ms(5);
+      }
+      answerlen = 4;
+      // msg_buf[0] = CMD_READ_FUSE_ISP; or CMD_READ_LOCK_ISP or ...
+      msg_buf[1] = STATUS_CMD_OK;
+      // msg_buf[2] is the data (fuse byte)
+      msg_buf[3] = STATUS_CMD_OK;
+      break;
+
+    case CMD_SPI_MULTI:
+      // 0: CMD_SPI_MULTI
+      // 1: NumTx
+      // 2: NumRx
+      // 3: RxStartAddr counting from zero
+      // 4+: TxData (len in NumTx)
+      // example: 0x1d 0x04 0x04 0x00   0x30 0x00 0x00 0x00
+      tmp = msg_buf[2];
+      tmp2 = msg_buf[3];
+      cj = 0;
+      ci = 0;
+      SCK_LOW;
+      for (cj = 0; cj < msg_buf[1]; cj++) {
+        delay_ms(5);
+        if (cj >= tmp2 && ci < tmp) {
+          // store answer starting from msg_buf[2]
+          msg_buf[ci + 2] = spi_mastertransmit(msg_buf[cj + 4]);
+          ci++;
         } else {
-          // simple waiting
-          delay_ms(msg_buf[4]);
+          spi_mastertransmit_nr(msg_buf[cj + 4]);
         }
       }
-    }
-    answerlen = 2;
-    //msg_buf[0] = CMD_PROGRAM_FLASH_ISP; or CMD_PROGRAM_EEPROM_ISP
-    msg_buf[1] = cstatus;
-    break;
-
-  case CMD_READ_EEPROM_ISP:
-    addressing_is_word = 0; // address each byte
-  case CMD_READ_FLASH_ISP:
-    // msg_buf[1] and msg_buf[2] NumBytes
-    // msg_buf[3] cmd
-    nbytes = ((unsigned int)msg_buf[1]) << 8;
-    nbytes |= msg_buf[2];
-    tmp = msg_buf[3];
-    // limit answer len, prevent overflow:
-    if (nbytes > 280) {
-      nbytes = 280;
-    }
-    //
-    i = 0;
-    spi_scklow();
-    while (i < nbytes)
-    {
-      wdt_reset();
-      // In commands PROGRAM_FLASH and READ_FLASH "Load Extended Address"
-      // command is executed before every operation if we are programming
-      // processor with Flash memory bigger than 64k words and 64k words boundary
-      // is just crossed or new address was just loaded.
-      if (larger_than_64k && ((address & 0xFFFF) == 0 || new_address)) {
-        // load extended addr byte 0x4d
-        spi_mastertransmit(0x4d);
-        spi_mastertransmit(0x00);
-        spi_mastertransmit(extended_address);
-        spi_mastertransmit(0x00);
-        new_address = 0;
-      }
-      //Select Low or High-Byte
-      if (addressing_is_word && i & 1) {
-        spi_mastertransmit_nr(tmp | (1 << 3));
-      } else {
-        spi_mastertransmit_nr(tmp);
-      }
-
-      spi_mastertransmit_16_nr(address & 0xffff);
-      msg_buf[i + 2] = spi_mastertransmit(0);
-
-      if (addressing_is_word) {
-        //increment word address only when we have an uneven byte
-        if (i & 1) {
-          address++;
-          if ((address & 0xFFFF) == 0xFFFF) {
-            extended_address++;
-          }
-        }
-      } else {
-        address++;
-      }
-      i++;
-    }
-    answerlen = nbytes + 3;
-    //msg_buf[0] = CMD_READ_FLASH_ISP; or CMD_READ_EEPROM_ISP
-    msg_buf[1] = STATUS_CMD_OK;
-    msg_buf[nbytes + 2] = STATUS_CMD_OK;
-    break;
-
-  case CMD_PROGRAM_LOCK_ISP:
-  case CMD_PROGRAM_FUSE_ISP:
-    spi_scklow();
-    spi_mastertransmit_nr(msg_buf[1]);
-    spi_mastertransmit_nr(msg_buf[2]);
-    spi_mastertransmit_nr(msg_buf[3]);
-    spi_mastertransmit_nr(msg_buf[4]);
-    answerlen = 3;
-    // msg_buf[0] = CMD_PROGRAM_FUSE_ISP; or CMD_PROGRAM_LOCK_ISP
-    msg_buf[1] = STATUS_CMD_OK;
-    msg_buf[2] = STATUS_CMD_OK;
-    break;
-
-  case CMD_READ_OSCCAL_ISP:
-  case CMD_READ_SIGNATURE_ISP:
-  case CMD_READ_LOCK_ISP:
-  case CMD_READ_FUSE_ISP:
-    spi_scklow();
-    for (ci = 0; ci < 4; ci++) {
-      tmp = spi_mastertransmit(msg_buf[ci + 2]);
-      if (msg_buf[1] == (ci + 1)) {
-        msg_buf[2] = tmp;
-      }
-      delay_ms(5);
-    }
-    answerlen = 4;
-    // msg_buf[0] = CMD_READ_FUSE_ISP; or CMD_READ_LOCK_ISP or ...
-    msg_buf[1] = STATUS_CMD_OK;
-    // msg_buf[2] is the data (fuse byte)
-    msg_buf[3] = STATUS_CMD_OK;
-    break;
-
-  case CMD_SPI_MULTI:
-    // 0: CMD_SPI_MULTI
-    // 1: NumTx
-    // 2: NumRx
-    // 3: RxStartAddr counting from zero
-    // 4+: TxData (len in NumTx)
-    // example: 0x1d 0x04 0x04 0x00   0x30 0x00 0x00 0x00
-    tmp = msg_buf[2];
-    tmp2 = msg_buf[3];
-    cj = 0;
-    ci = 0;
-    spi_scklow();
-    for (cj = 0; cj < msg_buf[1]; cj++) {
-      delay_ms(5);
-      if (cj >= tmp2 && ci < tmp) {
-        // store answer starting from msg_buf[2]
-        msg_buf[ci + 2] = spi_mastertransmit(msg_buf[cj + 4]);
+      // padd with zero:
+      while (ci < tmp) {
+        msg_buf[ci + 2] = 0;
         ci++;
-      } else {
-        spi_mastertransmit_nr(msg_buf[cj + 4]);
       }
-    }
-    // padd with zero:
-    while (ci < tmp) {
-      msg_buf[ci + 2] = 0;
-      ci++;
-    }
-    answerlen = ci + 3;
-    // msg_buf[0] = CMD_SPI_MULTI
-    msg_buf[1] = STATUS_CMD_OK;
-    // msg_buf[2...ci+1] is the data
-    msg_buf[ci + 2] = STATUS_CMD_OK;
-    break;
+      answerlen = ci + 3;
+      // msg_buf[0] = CMD_SPI_MULTI
+      msg_buf[1] = STATUS_CMD_OK;
+      // msg_buf[2...ci+1] is the data
+      msg_buf[ci + 2] = STATUS_CMD_OK;
+      break;
 
-  default:
-    // we should not come here
-    answerlen = 2;
-    msg_buf[1] = STATUS_CMD_UNKNOWN;
-    break;
+    default:
+      // we should not come here
+      answerlen = 2;
+      msg_buf[1] = STATUS_CMD_UNKNOWN;
+      break;
   }
   transmit_answer(seqnum, answerlen);
 
@@ -809,7 +820,23 @@ int main(void)
   unsigned int msglen = 0;
   unsigned int i = 0;
 
+  // wait for the USB to startup, and the electrolytic capacitor
+  // to charge before blinking:
+  LED_INIT;
+  LED_OFF;
+  delay_ms(200);
+  delay_ms(200);
+  // indicate with LED that device is working:
+  ch=0;
+  while(ch <6){
+    ch++;
+    LED_ON;
+    delay_ms(20);
+    LED_OFF;
+    delay_ms(125);
+  }
   uart_init();
+  LED_OFF;
   sei();
 
   // timeout the watchdog after 2 sec:
@@ -898,7 +925,7 @@ int main(void)
       cksum ^= ch;
       msg_buf[i] = ch;
       i++;
-      wdt_reset(); //wdt_reset();
+      wdt_reset();
       if (i == msglen) {
         msgparsestate = MSG_WAIT_CKSUM;
       }
@@ -907,7 +934,7 @@ int main(void)
     if (msgparsestate == MSG_WAIT_CKSUM) {
       if (ch == cksum && msglen > 0) {
         // message correct, process it
-        wdt_reset(); //wdt_reset();
+        wdt_reset();
         programcmd(seqnum);
       } else {
         msg_buf[0] = ANSWER_CKSUM_ERROR;

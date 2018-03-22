@@ -1,13 +1,17 @@
-/* vim: set sw=8 ts=8 si et: */
-/*
+/* vim: set sw=2 ts=2 si et: */
+/*********************************************
 * Serial Peripheral Interface for avrusb500 v2
 * We do all spi operations in software. This
-* gives more flexibility. The atmega8 is at 14MHz fast
+* gives more flexibility. The ATMega88 is at 18.432MHz is fast
 * enough to do this. The C-code here is highly optimized
 * for speed.
-* Check the result with: avr-objdump -d main.out
-* Author: Guido Socher, Copyright: GPL V2
-*/
+*
+* Modified by: Clancy Palmer
+* Original Author: Guido Socher
+* License: GPL
+* Copyright: GPL
+**********************************************/
+
 #include <avr/io.h>
 #include <util/delay.h>
 #include "timeout.h"
@@ -15,6 +19,63 @@
 
 static unsigned char sck_dur = 1;
 static unsigned char d_sck_dur = 9;
+
+void spi_disable(void)
+{
+  // Just to be sure:
+  DDRD |= (1 << DDD2); // SCK is output
+  SCK_LOW;
+
+  RST_HIGH;               // +5V, reset off
+
+  // All other pins as input:
+  DDRD &= ~(1 << DDD3);   // MISO is input
+  PORTD &= ~(1 << PIND3); // Pullup off
+  DDRD &= ~(1 << DDD2);   // SCK as input
+  PORTD &= ~(1 << PIND2); // Pullup off
+  DDRD &= ~(1 << DDD4);   // MOSI as input
+  PORTD &= ~(1 << PIND4); // Pullup off
+
+  delay_ms(20);
+
+  // Now we can also set reset high impedence:
+  DDRB &= ~(1 << DDB0);   // Reset as input
+  PORTB &= ~(1 << PINB0); // Pullup off
+
+  // Disable SN74ACH125N outputs
+  DDRD &= ~(1 << DDD5);   // PD5 is input
+  PORTD &= ~(1 << PIND5); // Pullup off
+
+}
+
+void spi_init(void)
+{
+  // The connections for the sotware only SPI are as follows:
+  // Reset = PB0
+  // MOSI  = PD4
+  // MISO  = PD3
+  // SCK   = PD2
+
+  // Configure target reset pin
+  DDRB |= (1 << DDB0);    // Reset pin as output
+  RST_HIGH;               // +5V, reset off
+
+  // Configure SPI pins
+  DDRD &= ~(1 << DDD3);   // MISO is input
+  DDRD |= (1 << DDD4);    // MOSI is output
+  MOSI_LOW;               // MOSI low in case target uses as output
+  DDRD |= (1 << DDD2);    // SCK is output
+  SCK_LOW;                // SCK low in case target uses as output
+  
+  // Enable SN74ACH125N outputs
+  DDRD |= (1 << DDD5);    // PD5 is output
+  PORTD &= ~(1 << PIND5); // Low to enable outputs
+
+  delay_ms(10);           // discharge MOSI/SCK
+  RST_LOW;                // Reset = low, stay active
+  delay_ms(20);           // stab delay
+  spi_reset_pulse();
+}
 
 // the mapping between SCK freq and SCK_DURATION is for avrisp as follows:
 // this table is for 14.7 MHz:
@@ -43,43 +104,32 @@ unsigned char  spi_set_sck_duration(unsigned char dur)
     // 10Khz
     sck_dur = 15;
     d_sck_dur = 253;
-    goto RET_RESULT;
-  }
-  if (dur >= 7) {
+  } else if (dur >= 7) {
     // 20Khz
     sck_dur = 7;
     d_sck_dur = 150;
-    goto RET_RESULT;
-  }
-  if (dur >= 3) {
+  } else if (dur >= 3) {
     // 28KHz
     sck_dur = 3;
     d_sck_dur = 100;
-    goto RET_RESULT;
-  }
-  if (dur >= 2) {
+  } else if (dur >= 2) {
     // 57KHz
     sck_dur = 2;
     d_sck_dur = 60;
-    goto RET_RESULT;
-  }
-  if (dur >= 1) {
+  } else if (dur >= 1) {
     // 230KHz
     sck_dur = 1;
     d_sck_dur = 9;
-    goto RET_RESULT;
-  }
-  if (dur < 1 ) {
+  } else if (dur < 1 ) {
     // 900KHz
     sck_dur = 0;
     d_sck_dur = 2;
-    goto RET_RESULT;
+  } else {
+    // we should never come here
+    sck_dur = 1;
+    d_sck_dur = 9;
   }
-  // we should never come here
-  sck_dur = 1;
-  d_sck_dur = 9;
-  //
-RET_RESULT:
+
   return (sck_dur);
 }
 
@@ -90,13 +140,13 @@ unsigned char spi_get_sck_duration(void)
 
 void spi_sck_pulse(void)
 {
-  PORTD &= ~(1 << PD2); // SCK low
-  _delay_loop_1(d_sck_dur);
-  _delay_loop_1(d_sck_dur);
-  PORTD |= (1 << PD2); // SCK high
-  _delay_loop_1(d_sck_dur);
-  _delay_loop_1(d_sck_dur);
-  PORTD &= ~(1 << PD2); // SCK low
+  SCK_LOW;
+  SCK_DELAY;
+  SCK_DELAY;
+  SCK_HIGH;
+  SCK_DELAY;
+  SCK_DELAY;
+  SCK_LOW;
 }
 
 void spi_reset_pulse(void)
@@ -109,126 +159,70 @@ void spi_reset_pulse(void)
    * Power-up. In this case, RESET must be given a positive pulse of at least two
    * CPU clock cycles duration after SCK has been set to 0."
    * */
-  PORTB |= (1 << PB0); // reset = high = not active
-  _delay_loop_1(d_sck_dur);
-  _delay_loop_1(d_sck_dur);
-  PORTB &= ~(1 << PB0); // reset = low, stay active
+  RST_HIGH; // reset = high = not active
+  SCK_DELAY;
+  SCK_DELAY;
+  RST_LOW;  // reset = low, stay active
   delay_ms(20); // min stab delay
 }
 
-void spi_init(void)
-{
-  // the connections for the sotware only spi are as follows:
-  // reset=pb0
-  // mosi =pd4
-  // miso =pd3
-  // sck  =pd2
-  //
-  DDRB |= (1 << DDB0); // reset as output
-  PORTB |= (1 << PB0); // +5V, reset off
-  //
-  DDRD &= ~(1 << DDD3); // MISO is input
-  // now output pins low in case somebody used it as output in his/her circuit
-  DDRD |= (1 << DDD4); // MOSI is output
-  PORTD &= ~(1 << PD4); // MOSI low
-  DDRD |= (1 << DDD2); // SCK is output
-  PORTD &= ~(1 << PD2); // SCK low
-  delay_ms(10); // discharge MOSI/SCK
-  //
-  PORTB &= ~(1 << PB0); // reset = low, stay active
-  delay_ms(20); // stab delay
-  spi_reset_pulse();
-}
-
-// send 8 bit, no return value
-void spi_mastertransmit_nr(unsigned char data)
-{
-  unsigned char i = 128;
-  // software spi
-  while (i != 0) {
-    // MOSI
-    if (data & i) {
-      PORTD |= 1 << PD4;
-    } else {
-      // trans mit a zero
-      PORTD &= ~(1 << PD4);
-    }
-    _delay_loop_1(d_sck_dur);
-    _delay_loop_1(1); // make pulse len equal to spi_mastertransmit
-    PORTD |= (1 << PD2); // SCK high
-    _delay_loop_1(d_sck_dur);
-    // make low and high pulse equaly long:
-    _delay_loop_1(3);
-    i = i >> 1;
-    PORTD &= ~(1 << PD2); // SCK low
-  }
-}
-
-// send 8 bit, return received byte
-unsigned char spi_mastertransmit(unsigned char data)
+// Send 8 bits, no receive
+unsigned char spi_xmit(unsigned char data, unsigned char read)
 {
   unsigned char i = 128;
   unsigned char rval = 0;
   // software spi
   while (i != 0) {
-    // MOSI
+    // Transmit a 1 or 0
     if (data & i) {
-      PORTD |= 1 << PD4;
+      MOSI_HIGH;
     } else {
-      // trans mit a zero
-      PORTD &= ~(1 << PD4);
+      MOSI_LOW;
     }
-    _delay_loop_1(d_sck_dur);
-    // read MISO
-    if (PIND & (1 << PIND3)) {
-      rval |= i;
+    SCK_DELAY;
+
+    if (read) {
+      if (MISO_READ) {
+        rval |= i;
+      }
+    } else {
+      _delay_loop_1(1); // make pulse len equal to read case
     }
-    PORTD |= (1 << PD2); // SCK high
-    _delay_loop_1(d_sck_dur);
-    _delay_loop_1(3); // make low and high pulse equaly long
+
+    SCK_HIGH;
+    SCK_DELAY;
+    _delay_loop_1(3);// make low and high pulse equaly long:
+    SCK_LOW;
     i = i >> 1;
-    PORTD &= ~(1 << PD2); // SCK low
   }
-  return (rval);
+
+  return rval;
 }
 
-// send 16 bit, return last rec byte
+void spi_mastertransmit_nr(unsigned char data)
+{
+  spi_xmit(data, 0);
+}
+// Send 8 bits, return received byte
+unsigned char spi_mastertransmit(unsigned char data)
+{
+  return spi_xmit(data, 1);
+}
+
+// Send 16 bit, no read
 void spi_mastertransmit_16_nr(unsigned int data)
 {
-  PORTD &= ~(1 << PD2); // SCK low
+  SCK_LOW;
   spi_mastertransmit_nr((data >> 8) & 0xFF);
   spi_mastertransmit_nr(data & 0xFF);
 }
 
-// send 32 bit, return last rec byte
+// Send 32 bit, return last read byte
 unsigned char spi_mastertransmit_32(unsigned long data)
 {
-  PORTD &= ~(1 << PD2); // SCK low
+  SCK_LOW;
   spi_mastertransmit_nr((data >> 24) & 0xFF);
   spi_mastertransmit_nr((data >> 16) & 0xFF);
   spi_mastertransmit_nr((data >> 8) & 0xFF);
-  return (spi_mastertransmit(data & 0xFF));
+  return spi_mastertransmit(data & 0xFF);
 }
-
-void spi_disable(void)
-{
-  // just to be sure:
-  DDRD |= (1 << DDD2); // SCK is output
-  PORTD &= ~(1 << PD2); // SCK low
-  //
-  PORTB |= (1 << PB0); // +5V, reset off
-  // all other pins as input:
-  DDRD &= ~(1 << DDD3); // MISO is input
-  PORTD &= ~(1 << PIND3); // pullup off
-  //
-  DDRD &= ~(1 << DDD2); // SCK as input, high
-  PORTD &= ~(1 << PIND2); // pullup off
-  //
-  DDRD &= ~(1 << DDD4); // MOSI as input, high
-  PORTD &= ~(1 << PIND4); // pullup off
-  delay_ms(20);
-  // now we can also set reset high impedence:
-  DDRB &= ~(1 << DDB0); // reset as input, high
-  PORTB &= ~(1 << PINB0); // pullup off
-}
-
