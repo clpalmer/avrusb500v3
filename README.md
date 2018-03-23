@@ -2,9 +2,8 @@ avrusb500v3 is an stk500v2-compatible programmer based on the AvrUsb500v2 projec
 
 http://tuxgraphics.org/electronics
 
----------------------------------------------------------------------------------------------------
 Hardware
----------------------------------------------------------------------------------------------------
+========
 
 The hardware for this project has been modified from the original as follows:
 - The FT232RL chip was replaced by an MCP2200 from Microchip
