@@ -149,8 +149,9 @@ Procedure:
   * Program the target fuses with a very low SCK frequency (ie. avrdude option -B 20)
 
 ie. To recover an ATMega8 use:
-avrdude -p m8 -c stk500v2 -P /dev/ttyUSB0 -b 115200 -u -v -U lfuse:w:0xe1:m -B 20
-
+```
+	avrdude -p m8 -c stk500v2 -P /dev/ttyUSB0 -b 115200 -u -v -U lfuse:w:0xe1:m -B 20
+```
 The low speed (set with -B 20) stays until you change it or unplug the usb connector.
 
 
