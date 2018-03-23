@@ -1,7 +1,7 @@
 AVRUSB500v3
 ===========
 avrusb500v3 is an stk500v2-compatible programmer based on the AvrUsb500v2 project here:
-http://tuxgraphics.org/electronics
+	[tuxgraphics](http://tuxgraphics.org/electronics "tuxgraphics")
 
 
 Hardware
@@ -41,7 +41,7 @@ MCP2200 Configuration
 ---------------------
 
 Configuring the MCP2200 can be done using the MCP2200 Configuration Utility available from:
-    http://www.microchip.com/wwwproducts/en/en546923
+	http://www.microchip.com/wwwproducts/en/en546923
 Under Documentation->Software->MCP220 Configuration Utility
 
 Steps:
@@ -109,13 +109,11 @@ AVRDude is available as a package in the standard debian distrubution. You can i
 ```
 	sudo apt install avrdude
 ```
-
 Compiling the avrusb500v3.hex from from source (as well as other projects you create) will require
 the standard build tools and avr-gcc:
 ```
 	sudo apt install build-essential gcc-avr binutils-avr avr-libc
 ```
-
 Once installed, you can build the avrusb500v3.hex file by running 'make' in the source folder.
 
 
@@ -166,9 +164,9 @@ History
 Author/Copyright/LICENSE
 ------------------------
 
-Modifications - Clancy Palmer
-Original avrusb500v2 (and all the hard work!) - Guido Socher - http://tuxgraphics.org
-Idea for terminal mode by Florin-Viorel Petrov.
+Modifications - Clancy Palmer  
+Original avrusb500v2 (and all the hard work!) - Guido Socher - http://tuxgraphics.org  
+Idea for terminal mode by Florin-Viorel Petrov.  
 64K-Word flash addressing by Andrzej Wolski.
 
 Copyright: GPLv2 (see LICENSE and http://www.gnu.org/licenses/gpl.html )
