@@ -1,7 +1,7 @@
 AVRUSB500v3
 ===========
-avrusb500v3 is an stk500v2-compatible programmer based on the AvrUsb500v2 project here:
-	[tuxgraphics](http://tuxgraphics.org/electronics "tuxgraphics")
+avrusb500v3 is an stk500v2-compatible programmer based on the AvrUsb500v2 project here:  
+[tuxgraphics](http://tuxgraphics.org/electronics "tuxgraphics")
 
 
 Hardware
@@ -23,8 +23,9 @@ The hardware for this project has been modified from the original as follows:
     * Power the target w/ 3.3V
     * Use the voltage from the self-powered target to run the MOSI, RST, SCK lines
 
-The schematics and layout can be viewed/edited using the freeware version of DipTrace here:
-	https://diptrace.com/download/download-diptrace/
+The schematics and layout can be viewed/edited using the freeware version of DipTrace here:  
+[DipTrace Downloads](https://diptrace.com/download/download-diptrace/ "DipTrace Downloads")
+	
 
 
 Software
@@ -40,9 +41,7 @@ to avoid installing the SDK and building the SW.
 MCP2200 Configuration
 ---------------------
 
-Configuring the MCP2200 can be done using the MCP2200 Configuration Utility available from:
-	http://www.microchip.com/wwwproducts/en/en546923
-Under Documentation->Software->MCP220 Configuration Utility
+Configuring the MCP2200 can be done using the MCP2200 Configuration Utility available from [Microchip](http://www.microchip.com/wwwproducts/en/en546923 "Microchip") under Documentation->Software->MCP220 Configuration Utility
 
 Steps:
   * Install and run the MCP2200 Configuration Utility available
