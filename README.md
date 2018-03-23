@@ -1,6 +1,11 @@
-AVRUSB500v3
+<!--
+  Title: AvrUsb500v3
+  Description: An STK500v2-compatible AVR microcontroller programmer
+  Author: clpalmer
+  -->
+AvrUsb500v3
 ===========
-avrusb500v3 is an stk500v2-compatible programmer based on the AvrUsb500v2 project here:  
+AvrUsb500v3 is an STK500v2-compatible AVR microcontroller programmer based on the AvrUsb500v2 project here:  
 [tuxgraphics](http://tuxgraphics.org/electronics "tuxgraphics")
 
 
@@ -57,7 +62,7 @@ Steps:
 ATMega88 Configuration
 ----------------------
 
-The AVR must be programmed with the avrusb500v3.hex file and the fuses must be set as defined in
+The ATMega88 must be programmed with the avrusb500v3.hex file and the fuses must be set as defined in
 the Makefile. If you have access to AVRDude programming utility (easily available in linux):
 
   * Define your external programmer and port (DUDEHW, DUDEPORT) at the top of the Makefile
@@ -164,8 +169,8 @@ History
 Author/Copyright/LICENSE
 ------------------------
 
-Modifications - Clancy Palmer  
-Original avrusb500v2 (and all the hard work!) - Guido Socher - http://tuxgraphics.org  
+AvrUsb500v3 - Clancy Palmer  
+Original AvrUsb500v2 (and all the hard work!) - Guido Socher - http://tuxgraphics.org  
 Idea for terminal mode by Florin-Viorel Petrov.  
 64K-Word flash addressing by Andrzej Wolski.
 
