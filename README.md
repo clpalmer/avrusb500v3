@@ -9,7 +9,7 @@ Hardware
 
 The hardware for this project has been modified from the original as follows:
  * The FT232RL chip was replaced by an MCP2200 from Microchip
- * The self-programming feature was removed (another programmer is required to program the ATMega88)
+ * The self-programming feature was removed (another programmer is required to program the ATMega88 so if you don't have access to one, you're better to use avrusb500v2 from tuxgraphics)
  * The target connector was replaced with a standard 6-pin IDC
  * Target voltage is read from target VCC pin, not reset pin
  * A 3.3V AM1117-3.3 regulator was added to accomodate 3.3V targets
