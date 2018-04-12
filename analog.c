@@ -66,7 +66,7 @@ unsigned int convertanalog(unsigned char channel, uint8_t debug)
 }
 
 
-unsigned char analog2v(unsigned int aval)
+unsigned char analog2v(unsigned int aval, uint8_t debug)
 {
   // VTGT = 5.0V
   // VADCPIN(47k/220k divider) = 5.0 * (47 / (47 + 220)) = 0.88014V
@@ -85,7 +85,7 @@ unsigned char analog2v(unsigned int aval)
   // VTGTx10(approx) = AVAL * 6.1025 = AVAL * 6 * 41/400 - Close approximation to prevent overflow
   // VTGT(rounded) = ((AVAL * 6 * 41 / 400) + 5) / 10 - Rounded and scaled back down
 
-  uint32_t r = ((aval * 6 * 41 / 400) + 5) / 10;
+  uint32_t r = (((uint32_t)aval * 6 * 41 / 400) + 5) / 10;
   return (unsigned char)(r & 0xff);
 }
 
@@ -102,8 +102,8 @@ unsigned char vtarget_valid(void)
 // Returns target voltage * 10 (ie. 3.3V = 33)
 unsigned char vtarget_voltage_debug()
 {
-  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 1));
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 1), 1);
 }
 unsigned char vtarget_voltage(void) {
-  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 0));
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 0), 0);
 }
