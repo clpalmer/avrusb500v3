@@ -747,8 +747,10 @@ void terminalmode(unsigned char chr_nl)
   terminalmode_next_line();
 
   // vTarget
+  uint8_t v = vtarget_voltage();
   uart_sendstr_p(PSTR("Target Voltage: "));
-  utoa(vtarget_voltage(), (char *)msg_buf, 10);
+  utoa(v, (char *)msg_buf, 10);
+  uart_sendstr((char *)msg_buf);
   terminalmode_next_line();
   return;
 
