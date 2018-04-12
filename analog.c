@@ -10,6 +10,7 @@
 
 #include <avr/io.h>
 #include "analog.h"
+#include "uart.h"
 
 #define VTARGET_ADC_CHANNEL 0
 
@@ -34,6 +35,16 @@ unsigned int convertanalog(unsigned char channel)
 	while (ADCSRA & (1 << ADSC)); // Wait for result 
 	unsigned char adlow = ADCL;   // Read low first 
 	unsigned char adhigh = ADCH;  // Then read high
+
+  uart_sendstr_p(PSTR("ADCL: "));
+  utoa(adlow, (char *)msg_buf, 10);
+  uart_sendstr((char *)msg_buf);
+  terminalmode_next_line();
+  uart_sendstr_p(PSTR("ADCH: "));
+  utoa(adhigh, (char *)msg_buf, 10);
+  uart_sendstr((char *)msg_buf);
+  terminalmode_next_line();
+
 	return((unsigned int)((adhigh << 8) | (adlow & 0xFF)));
 }
 
