@@ -102,8 +102,8 @@ unsigned char vtarget_valid(void)
 // Returns target voltage * 10 (ie. 3.3V = 33)
 unsigned char vtarget_voltage_debug()
 {
-  return analog2v(convertanalog(VTARGET_ADC_CHANNEL), 1);
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 1));
 }
 unsigned char vtarget_voltage(void) {
-  return analog2v(convertanalog(VTARGET_ADC_CHANNEL), 0);
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 0));
 }
