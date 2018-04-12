@@ -39,11 +39,13 @@ unsigned int convertanalog(unsigned char channel)
   uart_sendstr_p(PSTR("ADCL: "));
   utoa(adlow, (char *)msg_buf, 10);
   uart_sendstr((char *)msg_buf);
-  terminalmode_next_line();
+  uart_sendchar('\x1B');
+  uart_sendchar('E');
   uart_sendstr_p(PSTR("ADCH: "));
   utoa(adhigh, (char *)msg_buf, 10);
   uart_sendstr((char *)msg_buf);
-  terminalmode_next_line();
+  uart_sendchar('\x1B');
+  uart_sendchar('E');
 
 	return((unsigned int)((adhigh << 8) | (adlow & 0xFF)));
 }
