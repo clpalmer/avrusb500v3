@@ -104,5 +104,5 @@ unsigned char vtarget_voltage(bool debug)
   return analog2v(convertanalog(VTARGET_ADC_CHANNEL));
 }
 unsigned char vtarget_voltage(void) {
-  return vtarget_voltage(false);
+  return vtarget_voltage(FALSE);
 }
