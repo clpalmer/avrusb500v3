@@ -9,6 +9,7 @@
 **********************************************/
 
 #include <avr/io.h>
+#include <stdint.h>
 #include "analog.h"
 #include "uart.h"
 
@@ -104,5 +105,5 @@ unsigned char vtarget_voltage(bool debug)
   return analog2v(convertanalog(VTARGET_ADC_CHANNEL));
 }
 unsigned char vtarget_voltage(void) {
-  return vtarget_voltage(FALSE);
+  return vtarget_voltage(false);
 }
