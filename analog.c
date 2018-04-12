@@ -85,7 +85,9 @@ unsigned char analog2v(unsigned int aval, uint8_t debug)
   // VTGTx10(approx) = AVAL * 6.1025 = AVAL * 6 * 41/400 - Close approximation to prevent overflow
   // VTGT(rounded) = ((AVAL * 6 * 41 / 400) + 5) / 10 - Rounded and scaled back down
 
-  uint32_t r = (((uint32_t)aval * 6 * 41 / 400) + 5) / 10;
+  //uint32_t r = (((uint32_t)aval * 6 * 41 / 400) + 5) / 10;
+
+  uint32_t r = ((float)aval * 1.1 / 1024) * 267 / 47;
   return (unsigned char)(r & 0xff);
 }
 
