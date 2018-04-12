@@ -11,7 +11,7 @@
 #ifndef ANALOG_H
 #define ANALOG_H
 
-#include <stdint.h>
+#include <stdbool.h>
 
 extern unsigned char vtarget_valid(void);         // Return 1 if target voltage is valid, 0 otherwise
 extern unsigned char vtarget_voltage(void);       // Return target voltage * 10

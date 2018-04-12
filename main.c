@@ -12,7 +12,7 @@
 **********************************************/
 
 #include <inttypes.h>
-#include <stdint.h>
+#include <stdbool.h>
 #include <avr/interrupt.h>
 #include <string.h>
 #include <avr/io.h>
