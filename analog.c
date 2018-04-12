@@ -15,7 +15,7 @@
 #define VTARGET_ADC_CHANNEL 0
 
 // Return analog value of a given channel w/out interrupts 
-unsigned int convertanalog(unsigned char channel) 
+unsigned int convertanalog(unsigned char channel, bool debug) 
 {
   unsigned char msg_buf[16];
 
@@ -38,24 +38,28 @@ unsigned int convertanalog(unsigned char channel)
 	unsigned char adlow = ADCL;   // Read low first 
 	unsigned char adhigh = ADCH;  // Then read high
 
-  uart_sendstr_p(PSTR("ADCL: "));
-  utoa(adlow, (char *)msg_buf, 10);
-  uart_sendstr((char *)msg_buf);
-  uart_sendchar('\x1B');
-  uart_sendchar('E');
-  uart_sendstr_p(PSTR("ADCH: "));
-  utoa(adhigh, (char *)msg_buf, 10);
-  uart_sendstr((char *)msg_buf);
-  uart_sendchar('\x1B');
-  uart_sendchar('E');
+  if (debug) {
+    uart_sendstr_p(PSTR("ADCL: "));
+    utoa(adlow, (char *)msg_buf, 10);
+    uart_sendstr((char *)msg_buf);
+    uart_sendchar('\x1B');
+    uart_sendchar('E');
+    uart_sendstr_p(PSTR("ADCH: "));
+    utoa(adhigh, (char *)msg_buf, 10);
+    uart_sendstr((char *)msg_buf);
+    uart_sendchar('\x1B');
+    uart_sendchar('E');
+  }
 
   uint16_t ret = (unsigned int)((adhigh << 8) | (adlow & 0xFF));
-
-  uart_sendstr_p(PSTR("ADC: "));
-  utoa(ret, (char *)msg_buf, 10);
-  uart_sendstr((char *)msg_buf);
-  uart_sendchar('\x1B');
-  uart_sendchar('E');
+  
+  if (debug) {
+    uart_sendstr_p(PSTR("ADC: "));
+    utoa(ret, (char *)msg_buf, 10);
+    uart_sendstr((char *)msg_buf);
+    uart_sendchar('\x1B');
+    uart_sendchar('E');
+  }
 
   return ret;
 }
@@ -95,7 +99,10 @@ unsigned char vtarget_valid(void)
 }
 
 // Returns target voltage * 10 (ie. 3.3V = 33)
-unsigned char vtarget_voltage(void)
+unsigned char vtarget_voltage(bool debug)
 {
   return analog2v(convertanalog(VTARGET_ADC_CHANNEL));
+}
+unsigned char vtarget_voltage(void) {
+  return vtarget_voltage(false);
 }
