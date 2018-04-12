@@ -87,7 +87,7 @@ unsigned char analog2v(unsigned int aval, uint8_t debug)
 
   //uint32_t r = (((uint32_t)aval * 6 * 41 / 400) + 5) / 10;
 
-  uint32_t r = (uint32_t)(((float)aval * 1.1 / 1024) * 267 / 47 * 10);
+  uint32_t r = (uint32_t)(((float)aval * 1.1 / 1024) * 287 / 47 * 10);
   return (unsigned char)(r & 0xff);
 }
 
