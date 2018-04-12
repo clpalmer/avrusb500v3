@@ -9,7 +9,7 @@
 **********************************************/
 
 #include <avr/io.h>
-#include <string.h>
+#include <stdlib.h>
 #include "analog.h"
 #include "uart.h"
 
