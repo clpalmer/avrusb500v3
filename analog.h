@@ -13,6 +13,6 @@
 
 extern unsigned char vtarget_valid(void);     // Return 1 if target voltage is valid, 0 otherwise
 extern unsigned char vtarget_voltage(void);   // Return target voltage * 10
-extern unsigned char vtarget_voltage_debug(); // Return target voltage, optionally printing debug traces
+extern unsigned char vtarget_voltage_debug(void); // Return target voltage, optionally printing debug traces
 
 #endif /* ANALOG_H */
