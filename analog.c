@@ -9,14 +9,13 @@
 **********************************************/
 
 #include <avr/io.h>
-#include <stdbool.h>
 #include "analog.h"
 #include "uart.h"
 
 #define VTARGET_ADC_CHANNEL 0
 
 // Return analog value of a given channel w/out interrupts 
-unsigned int convertanalog(unsigned char channel, bool debug) 
+unsigned int convertanalog(unsigned char channel, uint8_t debug) 
 {
   unsigned char msg_buf[16];
 
@@ -100,10 +99,10 @@ unsigned char vtarget_valid(void)
 }
 
 // Returns target voltage * 10 (ie. 3.3V = 33)
-unsigned char vtarget_voltage(bool debug)
+unsigned char vtarget_voltage_debug()
 {
-  return analog2v(convertanalog(VTARGET_ADC_CHANNEL));
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL), 1);
 }
 unsigned char vtarget_voltage(void) {
-  return vtarget_voltage(false);
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL), 0);
 }
