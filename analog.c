@@ -17,6 +17,8 @@
 // Return analog value of a given channel w/out interrupts 
 unsigned int convertanalog(unsigned char channel) 
 {
+  unsigned char msg_buf[16];
+
   /* Configure ADC reference and channel
    * REFS1 = 1, REFS0 = 1 - Internal 1.1V reference w/ external capacitor on AREF pin
    * MUX3, MUX2, MUX1, MUX0 = Channel
