@@ -49,7 +49,15 @@ unsigned int convertanalog(unsigned char channel)
   uart_sendchar('\x1B');
   uart_sendchar('E');
 
-	return((unsigned int)((adhigh << 8) | (adlow & 0xFF)));
+  uint16_t ret = (unsigned int)((adhigh << 8) | (adlow & 0xFF));
+
+  uart_sendstr_p(PSTR("ADC: "));
+  utoa(ret, (char *)msg_buf, 10);
+  uart_sendstr((char *)msg_buf);
+  uart_sendchar('\x1B');
+  uart_sendchar('E');
+
+  return ret;
 }
 
 
