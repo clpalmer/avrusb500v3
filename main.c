@@ -752,8 +752,6 @@ void terminalmode(unsigned char chr_nl)
   utoa(v, (char *)msg_buf, 10);
   uart_sendstr((char *)msg_buf);
   terminalmode_next_line();
-  return;
-
 
   uart_sendstr_p(PSTR("Enter SW Version Major in hex ["));
   utoa(CONFIG_PARAM_SW_MAJOR, (char *)msg_buf, 16);
