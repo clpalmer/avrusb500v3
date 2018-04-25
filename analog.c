@@ -9,13 +9,17 @@
 **********************************************/
 
 #include <avr/io.h>
+#include <stdlib.h>
 #include "analog.h"
+#include "uart.h"
 
 #define VTARGET_ADC_CHANNEL 0
 
 // Return analog value of a given channel w/out interrupts 
-unsigned int convertanalog(unsigned char channel) 
+unsigned int convertanalog(unsigned char channel, uint8_t debug) 
 {
+  unsigned char msg_buf[16];
+
   /* Configure ADC reference and channel
    * REFS1 = 1, REFS0 = 1 - Internal 1.1V reference w/ external capacitor on AREF pin
    * MUX3, MUX2, MUX1, MUX0 = Channel
@@ -34,11 +38,35 @@ unsigned int convertanalog(unsigned char channel)
 	while (ADCSRA & (1 << ADSC)); // Wait for result 
 	unsigned char adlow = ADCL;   // Read low first 
 	unsigned char adhigh = ADCH;  // Then read high
-	return((unsigned int)((adhigh << 8) | (adlow & 0xFF)));
+
+  if (debug) {
+    uart_sendstr_p(PSTR("ADCL: "));
+    utoa(adlow, (char *)msg_buf, 10);
+    uart_sendstr((char *)msg_buf);
+    uart_sendchar('\x1B');
+    uart_sendchar('E');
+    uart_sendstr_p(PSTR("ADCH: "));
+    utoa(adhigh, (char *)msg_buf, 10);
+    uart_sendstr((char *)msg_buf);
+    uart_sendchar('\x1B');
+    uart_sendchar('E');
+  }
+
+  uint16_t ret = (unsigned int)((adhigh << 8) | (adlow & 0xFF));
+  
+  if (debug) {
+    uart_sendstr_p(PSTR("ADC: "));
+    utoa(ret, (char *)msg_buf, 10);
+    uart_sendstr((char *)msg_buf);
+    uart_sendchar('\x1B');
+    uart_sendchar('E');
+  }
+
+  return ret;
 }
 
 
-unsigned char analog2v(unsigned int aval)
+unsigned char analog2v(unsigned int aval, uint8_t debug)
 {
   // VTGT = 5.0V
   // VADCPIN(47k/220k divider) = 5.0 * (47 / (47 + 220)) = 0.88014V
@@ -57,7 +85,9 @@ unsigned char analog2v(unsigned int aval)
   // VTGTx10(approx) = AVAL * 6.1025 = AVAL * 6 * 41/400 - Close approximation to prevent overflow
   // VTGT(rounded) = ((AVAL * 6 * 41 / 400) + 5) / 10 - Rounded and scaled back down
 
-  uint32_t r = ((aval * 6 * 41 / 400) + 5) / 10;
+  //uint32_t r = (((uint32_t)aval * 6 * 41 / 400) + 5) / 10;
+
+  uint32_t r = (uint32_t)(((float)aval / 1024) * 267 / 47 * 10);
   return (unsigned char)(r & 0xff);
 }
 
@@ -72,7 +102,10 @@ unsigned char vtarget_valid(void)
 }
 
 // Returns target voltage * 10 (ie. 3.3V = 33)
-unsigned char vtarget_voltage(void)
+unsigned char vtarget_voltage_debug()
 {
-  return analog2v(convertanalog(VTARGET_ADC_CHANNEL));
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 1), 1);
+}
+unsigned char vtarget_voltage(void) {
+  return analog2v(convertanalog(VTARGET_ADC_CHANNEL, 0), 0);
 }

@@ -745,6 +745,14 @@ void terminalmode(unsigned char chr_nl)
   // version string of this software
   uart_sendstr_p(PSTR("avrusb500v2-1.5 \r\n"));
   terminalmode_next_line();
+
+  // vTarget
+  uint8_t v = vtarget_voltage_debug();
+  uart_sendstr_p(PSTR("Target Voltage: "));
+  utoa(v, (char *)msg_buf, 10);
+  uart_sendstr((char *)msg_buf);
+  terminalmode_next_line();
+
   uart_sendstr_p(PSTR("Enter SW Version Major in hex ["));
   utoa(CONFIG_PARAM_SW_MAJOR, (char *)msg_buf, 16);
   uart_sendstr((char *)msg_buf);
@@ -754,6 +762,7 @@ void terminalmode(unsigned char chr_nl)
     CONFIG_PARAM_SW_MAJOR = (unsigned char)i;
   }
   terminalmode_next_line();
+
   uart_sendstr_p(PSTR("Enter SW Version Minor in hex ["));
   utoa(CONFIG_PARAM_SW_MINOR, (char *)msg_buf, 16);
   uart_sendstr((char *)msg_buf);

@@ -4,9 +4,14 @@ CFLAGS=-g -DF_CPU=18432000UL -mmcu=atmega88 -Wall -Wstrict-prototypes -Os -mcall
 #-------------------
 # avrdude settings for programming the programmer
 DUDEHW=dragon_isp
-DUDEPORT=/dev/ttyACM0
 DUDEBAUD=115200
-DUDECMD=avrdude -p m88 -c $(DUDEHW) -P $(DUDEPORT) -b $(DUDEBAUD)
+#DUDEPORT=/dev/ttyS0 # No serial port for AVR Dragon
+
+ifneq ($(DUDEPORT),)
+  DUDEPORTCMD=-P $(DUDEPORT)
+endif
+
+DUDECMD=avrdude -p m88 -c $(DUDEHW) -b $(DUDEBAUD) $(DUDEPORTCMD)
 #-------------------
 # ATMega88 fuses
 # High(0xDF) - Default
@@ -62,8 +67,8 @@ uart.o : uart.c uart.h timeout.h analog.h
 	avr-gcc $(CFLAGS) -Os -c uart.c
 #-------------------
 # Load firmware with external programmer
-ld: main.hex
-	$(DUDECMD) -e -U flash:w:main.hex
+ld: avrusb500v3.hex
+	$(DUDECMD) -e -U flash:w:avrusb500v3.hex
 #-------------------
 # Set fuses with external programmer
 wf: 
