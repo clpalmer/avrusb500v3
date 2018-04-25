@@ -828,7 +828,7 @@ int main(void)
   delay_ms(200);
   // indicate with LED that device is working:
   ch=0;
-  while(ch <6){
+  while(ch < 6){
     ch++;
     LED_ON;
     delay_ms(20);
